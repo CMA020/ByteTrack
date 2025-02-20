@@ -13,9 +13,10 @@ from yolox.utils import fuse_model, get_model_info, postprocess
 from yolox.utils.visualize import plot_tracking
 from yolox.tracker.byte_tracker import BYTETracker
 from yolox.tracking_utils.timer import Timer
-
-
+# from classes_door2 import PersonList, Person 
+from tools.classes_door2 import Person, PersonList
 IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
+
 
 
 def make_parser():
@@ -233,7 +234,7 @@ def image_demo(predictor, vis_folder, current_time, args):
         logger.info(f"save results to {res_file}")
 
 
-def imageflow_demo(predictor, vis_folder, current_time, args):
+def imageflow_demo(predictor, vis_folder, current_time, args,person_list):
     cap = cv2.VideoCapture(args.path if args.demo == "video" else args.camid)
     width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)  # float
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)  # float
@@ -253,6 +254,13 @@ def imageflow_demo(predictor, vis_folder, current_time, args):
     timer = Timer()
     frame_id = 0
     results = []
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+
+    # Create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter('test3_1.mp4', fourcc, fps, (frame_width, frame_height))
     while True:
         if frame_id % 20 == 0:
             logger.info('Processing frame {} ({:.2f} fps)'.format(frame_id, 1. / max(1e-5, timer.average_time)))
@@ -277,8 +285,22 @@ def imageflow_demo(predictor, vis_folder, current_time, args):
                         )
                 timer.toc()
                 online_im = plot_tracking(
-                    img_info['raw_img'], online_tlwhs, online_ids, frame_id=frame_id + 1, fps=1. / timer.average_time
-                )
+                img_info['raw_img'], online_tlwhs, online_ids, frame_id=frame_id + 1, fps=1. / timer.average_time
+                    )
+                person_list.validate_add(online_targets, frame)
+                person_list.checks()
+                people_count = person_list.check_ppl_inside()
+                # Add text overlays
+                cv2.putText(frame, str(people_count), (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                            1, (0, 255, 0), 2)
+                cv2.putText(frame, str(person_list.det_close), (100, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                            1, (0, 255, 0), 2)
+                cv2.putText(frame, str(person_list.det_intersect), (200, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                            1, (0, 255, 0), 2)
+                
+                cv2.imshow("online_im", frame )
+                out.write(frame)
+
             else:
                 timer.toc()
                 online_im = img_info['raw_img']
@@ -288,8 +310,12 @@ def imageflow_demo(predictor, vis_folder, current_time, args):
             if ch == 27 or ch == ord("q") or ch == ord("Q"):
                 break
         else:
+            
+            out.release()
             break
         frame_id += 1
+
+
 
     if args.save_result:
         res_file = osp.join(vis_folder, f"{timestamp}.txt")
@@ -299,6 +325,11 @@ def imageflow_demo(predictor, vis_folder, current_time, args):
 
 
 def main(exp, args):
+
+    person_list = PersonList()
+
+    # Set door location
+    person_list.door = [330, 100, 380, 600]
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
 
@@ -362,7 +393,8 @@ def main(exp, args):
     if args.demo == "image":
         image_demo(predictor, vis_folder, current_time, args)
     elif args.demo == "video" or args.demo == "webcam":
-        imageflow_demo(predictor, vis_folder, current_time, args)
+        imageflow_demo(predictor, vis_folder, current_time, args,person_list)
+        
 
 
 if __name__ == "__main__":
